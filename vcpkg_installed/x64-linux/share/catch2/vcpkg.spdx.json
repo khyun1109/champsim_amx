@@ -1,0 +1,132 @@
+{
+  "$schema": "https://raw.githubusercontent.com/spdx/spdx-spec/v2.2.1/schemas/spdx-schema.json",
+  "spdxVersion": "SPDX-2.2",
+  "dataLicense": "CC0-1.0",
+  "SPDXID": "SPDXRef-DOCUMENT",
+  "documentNamespace": "https://spdx.org/spdxdocs/catch2-x64-linux-3.6.0-e8b6dac7-d767-4ec7-9750-ad6a1289c429",
+  "name": "catch2:x64-linux@3.6.0 f8b1018e36a683a63fc72d2f25c35b8ce944090b630b7a67b2fdc7bebe6493a0",
+  "creationInfo": {
+    "creators": [
+      "Tool: vcpkg-2024-07-10-d2dfc73769081bdd9b782d08d27794780b7a99b9"
+    ],
+    "created": "2026-01-19T09:07:05Z"
+  },
+  "relationships": [
+    {
+      "spdxElementId": "SPDXRef-port",
+      "relationshipType": "GENERATES",
+      "relatedSpdxElement": "SPDXRef-binary"
+    },
+    {
+      "spdxElementId": "SPDXRef-port",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-file-0"
+    },
+    {
+      "spdxElementId": "SPDXRef-port",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-file-1"
+    },
+    {
+      "spdxElementId": "SPDXRef-port",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-file-2"
+    },
+    {
+      "spdxElementId": "SPDXRef-binary",
+      "relationshipType": "GENERATED_FROM",
+      "relatedSpdxElement": "SPDXRef-port"
+    },
+    {
+      "spdxElementId": "SPDXRef-file-0",
+      "relationshipType": "CONTAINED_BY",
+      "relatedSpdxElement": "SPDXRef-port"
+    },
+    {
+      "spdxElementId": "SPDXRef-file-1",
+      "relationshipType": "CONTAINED_BY",
+      "relatedSpdxElement": "SPDXRef-port"
+    },
+    {
+      "spdxElementId": "SPDXRef-file-2",
+      "relationshipType": "CONTAINED_BY",
+      "relatedSpdxElement": "SPDXRef-port"
+    }
+  ],
+  "packages": [
+    {
+      "name": "catch2",
+      "SPDXID": "SPDXRef-port",
+      "versionInfo": "3.6.0",
+      "downloadLocation": "NOASSERTION",
+      "homepage": "https://github.com/catchorg/Catch2",
+      "licenseConcluded": "BSL-1.0",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "description": "A modern, C++-native, test framework for unit-tests, TDD and BDD.",
+      "comment": "This is the port (recipe) consumed by vcpkg."
+    },
+    {
+      "name": "catch2:x64-linux",
+      "SPDXID": "SPDXRef-binary",
+      "versionInfo": "f8b1018e36a683a63fc72d2f25c35b8ce944090b630b7a67b2fdc7bebe6493a0",
+      "downloadLocation": "NONE",
+      "licenseConcluded": "BSL-1.0",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "This is a binary package built by vcpkg."
+    },
+    {
+      "SPDXID": "SPDXRef-resource-1",
+      "name": "catchorg/Catch2",
+      "downloadLocation": "git+https://github.com/catchorg/Catch2@v3.6.0",
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "checksums": [
+        {
+          "algorithm": "SHA512",
+          "checksumValue": "09c728a04d69b0692d6e2f7ceb5889dc69309406c27f7f2b5d383245a5357657c5540dd64a7a4a6e19388bda68105002425286468578b69b20e3a75366871ce2"
+        }
+      ]
+    }
+  ],
+  "files": [
+    {
+      "fileName": ".//home/yhjeon/ChampSim/vcpkg/ports/catch2/vcpkg.json",
+      "SPDXID": "SPDXRef-file-0",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "5e75b13dc9c1b686721656ef79e15ec279740de351e27e862f8e0919c347f693"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "fileName": ".//home/yhjeon/ChampSim/vcpkg/ports/catch2/fix-install-path.patch",
+      "SPDXID": "SPDXRef-file-1",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "d67374154f1910e41937173e9871991dfd5e43f43cca19a2fec10d3392000275"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "fileName": ".//home/yhjeon/ChampSim/vcpkg/ports/catch2/portfile.cmake",
+      "SPDXID": "SPDXRef-file-2",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "acf52a0f356fff3d7158f077fed6eeaf2b71fbb6794d9485406714fc2853a71d"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    }
+  ]
+}

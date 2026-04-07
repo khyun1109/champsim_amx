@@ -1,0 +1,7 @@
+-std=c++17
+-O3
+-fopenmp
+-pthread
+-Iinc
+-Isrc
+-Itest/cpp/inc

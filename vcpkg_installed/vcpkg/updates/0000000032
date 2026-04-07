@@ -1,0 +1,9 @@
+Package: fmt
+Version: 10.2.1
+Port-Version: 2
+Depends: vcpkg-cmake, vcpkg-cmake-config
+Architecture: x64-linux
+Multi-Arch: same
+Abi: ff48b9e8ee6eff652117e60d3d12a1c0f7e7d005c44cba596c54953c40430698
+Description: {fmt} is an open-source formatting library providing a fast and safe alternative to C stdio and C++ iostreams.
+Status: install ok half-installed

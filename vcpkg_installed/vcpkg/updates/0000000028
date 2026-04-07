@@ -1,0 +1,8 @@
+Package: catch2
+Version: 3.6.0
+Depends: vcpkg-cmake, vcpkg-cmake-config
+Architecture: x64-linux
+Multi-Arch: same
+Abi: f8b1018e36a683a63fc72d2f25c35b8ce944090b630b7a67b2fdc7bebe6493a0
+Description: A modern, C++-native, test framework for unit-tests, TDD and BDD.
+Status: install ok half-installed

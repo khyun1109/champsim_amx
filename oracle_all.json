@@ -1,0 +1,11 @@
+{
+    "oracle_l1": {
+        "enabled": true,
+        "mode": "oracle_l1_hit",
+        "filter": "oracle_all_reads",
+        "lookahead_instructions": 4096,
+        "capacity_lines": 0,
+        "hit_latency_cycles": 1,
+        "count_as_true_l1": false
+    }
+}
