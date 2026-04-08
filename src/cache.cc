@@ -961,9 +961,29 @@ bool CACHE::handle_write(const tag_lookup_type& handle_pkt)
 template <bool UpdateRequest>
 auto CACHE::initiate_tag_check(champsim::channel* ul)
 {
-  return [time = current_time + (warmup ? champsim::chrono::clock::duration{} : HIT_LATENCY), ul, name = NAME](const auto& entry) {
+  // Compute mesh delay for LLC accesses (core-to-slice round-trip)
+  auto base_latency = warmup ? champsim::chrono::clock::duration{} : HIT_LATENCY;
+  bool is_llc = (NAME.find("LLC") != std::string::npos || NAME.find("llc") != std::string::npos);
+  auto mesh_extra = champsim::chrono::clock::duration{};
+  // Pre-compute per-core mesh delays for LLC
+  bool apply_mesh = is_llc && g_enable_mesh_latency && !warmup;
+
+  return [time = current_time + base_latency, mesh_extra, apply_mesh, clock_period = this->clock_period, ul, name = NAME](const auto& entry) {
     CACHE::tag_lookup_type retval{entry};
     retval.event_cycle = time;
+
+    // Add mesh hop delay for LLC: round-trip from core to home slice
+    if (apply_mesh) {
+      uint64_t addr_raw = entry.address.template to<uint64_t>();
+      int home_slice = static_cast<int>((addr_raw >> 6) % g_mesh_num_slices);
+      int core_id = static_cast<int>(entry.cpu);
+      int core_row = core_id / g_mesh_cols, core_col = core_id % g_mesh_cols;
+      int slice_row = home_slice / g_mesh_cols, slice_col = home_slice % g_mesh_cols;
+      int hops = std::abs(core_row - slice_row) + std::abs(core_col - slice_col);
+      // Round-trip: request hops + response hops = 2 * hops
+      int mesh_delay_cycles = 2 * hops * g_mesh_hop_cycles;
+      retval.event_cycle += mesh_delay_cycles * clock_period;
+    }
 
     if constexpr (UpdateRequest) {
       if (entry.response_requested) {

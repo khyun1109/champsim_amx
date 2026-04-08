@@ -95,6 +95,10 @@ int main(int argc, char** argv) // NOLINT(bugprone-exception-escape)
   app.add_flag("--per-child-lfb", g_per_child_lfb, "Each tile child consumes its own MSHR/LFB entry (realistic HW pressure)");
   app.add_flag("--tile-lru-insert", g_tile_lru_insert, "Insert tile data at LRU position in L1D to prevent cache pollution");
   app.add_flag("--warm-scalar-llc", g_warm_scalar_llc, "Force non-tile LLC misses to hit (simulates warm scalar cache from prior GEMM iterations)");
+  app.add_flag("--enable-ssb", g_enable_ssb, "Enable Senior Store Buffer: retired stores move to SSB, freeing SQ entries (realistic store retirement)");
+  app.add_flag("--enable-mesh-latency", g_enable_mesh_latency, "Add variable LLC latency based on core-to-slice mesh distance (EMR 2D mesh model)");
+  std::string microarch_config_file;
+  app.add_option("--microarch-config", microarch_config_file, "Path to JSON config with microarch_model section (ssb_size, mesh_cols, mesh_num_slices, mesh_hop_cycles)");
   int tmm_budget_val = 1;
   app.add_option("--tmm-budget", tmm_budget_val, "TMM rename budget (extra physical TMM registers beyond arch 8). Default=1");
 
@@ -105,6 +109,44 @@ int main(int argc, char** argv) // NOLINT(bugprone-exception-escape)
   // Apply TMM budget
   O3_CPU::TMM_EXTRA_PHYS = tmm_budget_val;
   O3_CPU::TMM_TOTAL_PHYS = 8 + tmm_budget_val;
+
+  // Load microarch_model config from JSON (uses defaults from tile_record.h if not specified)
+  if (!microarch_config_file.empty()) {
+    try {
+      std::ifstream mf(microarch_config_file);
+      if (mf.good()) {
+        nlohmann::json mj;
+        mf >> mj;
+        if (mj.contains("microarch_model")) {
+          auto& mm = mj["microarch_model"];
+          if (mm.contains("ssb_size")) {
+            for (auto& cpu_ref : gen_environment.cpu_view()) {
+              O3_CPU& cpu = cpu_ref;
+              cpu.SSB_SIZE = mm["ssb_size"].get<std::size_t>();
+            }
+          }
+          if (mm.contains("mesh_cols"))       g_mesh_cols = mm["mesh_cols"].get<int>();
+          if (mm.contains("mesh_num_slices")) g_mesh_num_slices = mm["mesh_num_slices"].get<int>();
+          if (mm.contains("mesh_hop_cycles")) g_mesh_hop_cycles = mm["mesh_hop_cycles"].get<int>();
+          fmt::print("Loaded microarch_model from {}: ssb_size={}, mesh={}cols/{}slices/{}cy_hop\n",
+              microarch_config_file,
+              mm.value("ssb_size", 64), g_mesh_cols, g_mesh_num_slices, g_mesh_hop_cycles);
+        }
+      } else {
+        fmt::print("WARNING: Could not open --microarch-config file {}\n", microarch_config_file);
+      }
+    } catch (const std::exception& e) {
+      fmt::print("ERROR: Failed to parse microarch config JSON: {}\n", e.what());
+    }
+  }
+
+  // Apply SSB width
+  if (g_enable_ssb) {
+    for (auto& cpu_ref : gen_environment.cpu_view()) {
+      O3_CPU& cpu = cpu_ref;
+      cpu.SSB_WIDTH = champsim::bandwidth::maximum_type{2};
+    }
+  }
 
   const bool warmup_given = (warmup_instr_option->count() > 0) || (deprec_warmup_instr_option->count() > 0);
   const bool simulation_given = (sim_instr_option->count() > 0) || (deprec_sim_instr_option->count() > 0);
@@ -177,6 +219,11 @@ int main(int argc, char** argv) // NOLINT(bugprone-exception-escape)
   if (g_per_child_lfb) fmt::print("Per-child LFB: ENABLED (each tile child uses its own MSHR/LFB entry)\n");
   if (g_tile_lru_insert) fmt::print("Tile LRU insert: ENABLED (tile data inserted at LRU position in L1D)\n");
   if (g_warm_scalar_llc) fmt::print("Warm scalar LLC: ENABLED (non-tile LLC misses forced to hit)\n");
+  if (g_enable_ssb) {
+    auto& cpu0 = static_cast<O3_CPU&>(gen_environment.cpu_view().front());
+    fmt::print("SSB: ENABLED (ssb_size={})\n", cpu0.SSB_SIZE);
+  }
+  if (g_enable_mesh_latency) fmt::print("Mesh latency: ENABLED ({} cols, {} slices, {} cy/hop)\n", g_mesh_cols, g_mesh_num_slices, g_mesh_hop_cycles);
   fmt::print("\n");
 
   auto phase_stats = champsim::main(gen_environment, phases, traces);

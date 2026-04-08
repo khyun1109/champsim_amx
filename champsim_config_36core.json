@@ -172,5 +172,11 @@
     "num_levels": 5,
     "minor_fault_penalty": 200,
     "randomization": 1
+  },
+  "microarch_model": {
+    "ssb_size": 64,
+    "mesh_cols": 9,
+    "mesh_num_slices": 66,
+    "mesh_hop_cycles": 1
   }
 }

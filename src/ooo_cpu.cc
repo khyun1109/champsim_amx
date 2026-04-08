@@ -44,6 +44,10 @@ long O3_CPU::operate()
 {
   long progress{0};
   auto retired = retire_rob();                // retire
+  if (g_enable_ssb) {
+    move_sq_to_ssb();                         // move finished, retired stores SQ→SSB
+    progress += drain_ssb();                  // SSB→L1D WQ with independent bandwidth
+  }
   progress += retired;
   progress += complete_inflight_instruction(); // finalize execution
   progress += execute_instruction();           // execute instructions
@@ -729,7 +733,7 @@ void O3_CPU::do_memory_scheduling(ooo_model_instr& instr)
         (*q_entry)->tile_burst = is_burst;
     }
     
-    // Check for forwarding
+    // Check for forwarding (SQ first, then SSB if enabled)
     auto sq_it = std::max_element(std::begin(SQ), std::end(SQ), [addr](const auto& lhs, const auto& rhs) {
       return lhs.virtual_address != addr || (rhs.virtual_address == addr && LSQ_ENTRY::program_order(lhs, rhs));
     });
@@ -745,6 +749,14 @@ void O3_CPU::do_memory_scheduling(ooo_model_instr& instr)
         if constexpr (champsim::debug_print) {
           fmt::print("[DISPATCH] {} instr_id: {} waits on: {}\n", __func__, instr.instr_id, sq_it->instr_id);
         }
+      }
+    } else if (g_enable_ssb) {
+      // Check SSB for forwarding (SSB entries are already finished → immediate forwarding)
+      auto ssb_it = std::find_if(SSB.rbegin(), SSB.rend(),
+          [addr](const auto& e) { return e.virtual_address == addr; });
+      if (ssb_it != SSB.rend()) {
+        (*q_entry)->finish(instr);
+        q_entry->reset();
       }
     }
     total_loads++;
@@ -928,30 +940,47 @@ long O3_CPU::operate_lsq()
 {
   champsim::bandwidth store_bw{SQ_WIDTH};
 
-  const auto complete_id = std::empty(ROB) ? std::numeric_limits<uint64_t>::max() : ROB.front().instr_id;
-  auto do_complete = [time = current_time, finished = LSQ_ENTRY::precedes(complete_id), this](const auto& x) {
-    return finished(x) && x.ready_time <= time && this->do_complete_store(x);
-  };
+  if (!g_enable_ssb) {
+    // --- Original path: shared finish + complete ---
+    const auto complete_id = std::empty(ROB) ? std::numeric_limits<uint64_t>::max() : ROB.front().instr_id;
+    auto do_complete = [time = current_time, finished = LSQ_ENTRY::precedes(complete_id), this](const auto& x) {
+      return finished(x) && x.ready_time <= time && this->do_complete_store(x);
+    };
 
-  auto unfetched_begin = std::partition_point(std::begin(SQ), std::end(SQ), [](const auto& x) { return x.fetch_issued; });
-  auto [fetch_begin, fetch_end] =
-      champsim::get_span_p(unfetched_begin, std::end(SQ), store_bw, [time = current_time](const auto& x) { return !x.fetch_issued && x.ready_time <= time; });
-  store_bw.consume(std::distance(fetch_begin, fetch_end));
-  std::for_each(fetch_begin, fetch_end, [time = current_time, this](auto& sq_entry) {
-    // Oracle L1 Hook for Writes: Check and consume token BEFORE retirement drops it
-    if (!this->warmup && g_oracle_l1[this->cpu].enabled()) {
-      auto cur_cycle = current_time.time_since_epoch() / clock_period;
-      sq_entry.oracle_hit_status = g_oracle_l1[this->cpu].check_hit(sq_entry.virtual_address.template to<uint64_t>(), sq_entry.amx_tilestore, sq_entry.instr_id, cur_cycle, false, true);
-    }
-    
-    this->do_finish_store(sq_entry);
-    sq_entry.fetch_issued = true;
-    sq_entry.ready_time = time;
-  });
+    auto unfetched_begin = std::partition_point(std::begin(SQ), std::end(SQ), [](const auto& x) { return x.fetch_issued; });
+    auto [fetch_begin, fetch_end] =
+        champsim::get_span_p(unfetched_begin, std::end(SQ), store_bw, [time = current_time](const auto& x) { return !x.fetch_issued && x.ready_time <= time; });
+    store_bw.consume(std::distance(fetch_begin, fetch_end));
+    std::for_each(fetch_begin, fetch_end, [time = current_time, this](auto& sq_entry) {
+      if (!this->warmup && g_oracle_l1[this->cpu].enabled()) {
+        auto cur_cycle = current_time.time_since_epoch() / clock_period;
+        sq_entry.oracle_hit_status = g_oracle_l1[this->cpu].check_hit(sq_entry.virtual_address.template to<uint64_t>(), sq_entry.amx_tilestore, sq_entry.instr_id, cur_cycle, false, true);
+      }
+      this->do_finish_store(sq_entry);
+      sq_entry.fetch_issued = true;
+      sq_entry.ready_time = time;
+    });
 
-  auto [complete_begin, complete_end] = champsim::get_span_p(std::cbegin(SQ), std::cend(SQ), store_bw, do_complete);
-  store_bw.consume(std::distance(complete_begin, complete_end));
-  SQ.erase(complete_begin, complete_end);
+    auto [complete_begin, complete_end] = champsim::get_span_p(std::cbegin(SQ), std::cend(SQ), store_bw, do_complete);
+    store_bw.consume(std::distance(complete_begin, complete_end));
+    SQ.erase(complete_begin, complete_end);
+  } else {
+    // --- SSB path: finish only, full SQ_WIDTH for finish (complete handled by drain_ssb) ---
+    auto unfetched_begin = std::partition_point(std::begin(SQ), std::end(SQ), [](const auto& x) { return x.fetch_issued; });
+    auto [fetch_begin, fetch_end] =
+        champsim::get_span_p(unfetched_begin, std::end(SQ), store_bw, [time = current_time](const auto& x) { return !x.fetch_issued && x.ready_time <= time; });
+    store_bw.consume(std::distance(fetch_begin, fetch_end));
+    std::for_each(fetch_begin, fetch_end, [time = current_time, this](auto& sq_entry) {
+      if (!this->warmup && g_oracle_l1[this->cpu].enabled()) {
+        auto cur_cycle = current_time.time_since_epoch() / clock_period;
+        sq_entry.oracle_hit_status = g_oracle_l1[this->cpu].check_hit(sq_entry.virtual_address.template to<uint64_t>(), sq_entry.amx_tilestore, sq_entry.instr_id, cur_cycle, false, true);
+      }
+      this->do_finish_store(sq_entry);
+      sq_entry.fetch_issued = true;
+      sq_entry.ready_time = time;
+    });
+    // No complete phase — drain_ssb() handles it
+  }
 
   // ── Tile child drip-feed: create LQ entries one-by-one, same rate as scalar loads ──
   // Instead of 16 LQ entries at dispatch, tile children enter LQ progressively here,
@@ -991,7 +1020,7 @@ long O3_CPU::operate_lsq()
         (*q_entry)->tile_num_children = static_cast<uint8_t>(rob_entry.tile_child_addrs.size());
       }
 
-      // Store-to-load forwarding check
+      // Store-to-load forwarding check (SQ first, then SSB if enabled)
       auto sq_it = std::max_element(std::begin(SQ), std::end(SQ), [addr](const auto& lhs, const auto& rhs) {
         return lhs.virtual_address != addr || (rhs.virtual_address == addr && LSQ_ENTRY::program_order(lhs, rhs));
       });
@@ -1006,6 +1035,17 @@ long O3_CPU::operate_lsq()
         rob_entry.tile_children_in_lq++;
         load_bw.consume();
         continue; // next child of same tileload
+      }
+      if (g_enable_ssb) {
+        auto ssb_it = std::find_if(SSB.rbegin(), SSB.rend(),
+            [addr](const auto& e) { return e.virtual_address == addr; });
+        if (ssb_it != SSB.rend()) {
+          (*q_entry)->finish(rob_entry);
+          q_entry->reset();
+          rob_entry.tile_children_in_lq++;
+          load_bw.consume();
+          continue;
+        }
       }
 
       // Issue to L1D immediately
@@ -1131,6 +1171,66 @@ bool O3_CPU::do_complete_store(const LSQ_ENTRY& sq_entry)
   if (!this->warmup && g_oracle_l1[this->cpu].enabled()) {
     if (sq_entry.oracle_hit_status) {
       return true; // Bypass L1D WQ entirely
+    }
+  }
+
+  return L1D_bus.issue_write(data_packet);
+}
+
+// ── Senior Store Buffer (SSB) functions ──
+
+void O3_CPU::move_sq_to_ssb()
+{
+  const auto complete_id = std::empty(ROB) ? std::numeric_limits<uint64_t>::max() : ROB.front().instr_id;
+
+  auto it = std::begin(SQ);
+  while (it != std::end(SQ) && std::size(SSB) < SSB_SIZE) {
+    if (it->fetch_issued && it->instr_id < complete_id) {
+      SSB.push_back(SSB_ENTRY{
+          it->virtual_address, it->ip, it->instr_id, it->asid,
+          it->amx_tilestore, it->tile_group_id, it->tile_subidx,
+          it->tile_num_children, it->oracle_hit_status});
+      it = SQ.erase(it);
+    } else {
+      ++it;
+    }
+  }
+}
+
+long O3_CPU::drain_ssb()
+{
+  champsim::bandwidth ssb_bw{SSB_WIDTH};
+  auto it = std::begin(SSB);
+  while (it != std::end(SSB) && ssb_bw.has_remaining()) {
+    if (do_complete_store_from_ssb(*it)) {
+      it = SSB.erase(it);
+      ssb_bw.consume();
+      if (!warmup) ++roi_stall_stats.ssb_drain_total;
+    } else {
+      break; // L1D WQ full — stop to preserve store ordering (TSO)
+    }
+  }
+  return ssb_bw.amount_consumed();
+}
+
+bool O3_CPU::do_complete_store_from_ssb(const SSB_ENTRY& ssb_entry)
+{
+  CacheBus::request_type data_packet;
+  data_packet.v_address = ssb_entry.virtual_address;
+  data_packet.instr_id = ssb_entry.instr_id;
+  data_packet.ip = ssb_entry.ip;
+
+  if (ssb_entry.amx_tilestore && !g_disable_tile_sidecar) {
+    data_packet.is_amx_tileload = true;
+    data_packet.tile_group_id = ssb_entry.tile_group_id;
+    data_packet.tile_subidx = ssb_entry.tile_subidx;
+    data_packet.tile_num_children = ssb_entry.tile_num_children;
+    data_packet.tile_is_store = true;
+  }
+
+  if (!this->warmup && g_oracle_l1[this->cpu].enabled()) {
+    if (ssb_entry.oracle_hit_status) {
+      return true;
     }
   }
 
@@ -1401,6 +1501,7 @@ void O3_CPU::update_stall_stats(long retire_count)
       if (static_cast<std::size_t>(free_lq_raw) < needed) ++roi_stall_stats.raw_lq_full;
       if ((std::size(DISPATCH_BUFFER.front().destination_memory) + std::size(SQ)) > SQ_SIZE) ++roi_stall_stats.raw_sq_full;
       if (std::size(ROB) >= ROB_SIZE) ++roi_stall_stats.raw_rob_full;
+      if (g_enable_ssb && std::size(SSB) >= SSB_SIZE) ++roi_stall_stats.raw_ssb_full;
     }
 
     if (retire_count == 0) ++roi_stall_stats.raw_no_retire;
@@ -1670,6 +1771,10 @@ void O3_CPU::print_stall_stats() const
   fmt::print("  rob_full:            {:>10} ({:>5.1f}%)\n", roi_stall_stats.raw_rob_full, pct(roi_stall_stats.raw_rob_full));
   fmt::print("  sq_full:             {:>10} ({:>5.1f}%)\n", roi_stall_stats.raw_sq_full, pct(roi_stall_stats.raw_sq_full));
   fmt::print("  no_retire:           {:>10} ({:>5.1f}%)\n", roi_stall_stats.raw_no_retire, pct(roi_stall_stats.raw_no_retire));
+  if (g_enable_ssb) {
+    fmt::print("  ssb_full:            {:>10} ({:>5.1f}%)\n", roi_stall_stats.raw_ssb_full, pct(roi_stall_stats.raw_ssb_full));
+    fmt::print("  ssb_drain_total:     {:>10}\n", roi_stall_stats.ssb_drain_total);
+  }
 
   // Tileload latency stats
   if (tileload_count > 0) {

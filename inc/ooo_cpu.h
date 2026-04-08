@@ -101,6 +101,19 @@ struct LSQ_ENTRY : champsim::program_ordered<LSQ_ENTRY> {
   void finish(std::deque<ooo_model_instr>::iterator begin, std::deque<ooo_model_instr>::iterator end) const;
 };
 
+// Senior Store Buffer entry: holds retired stores draining to L1D WQ
+struct SSB_ENTRY {
+  champsim::address virtual_address{};
+  champsim::address ip{};
+  uint64_t instr_id = 0;
+  std::array<uint8_t, 2> asid = {std::numeric_limits<uint8_t>::max(), std::numeric_limits<uint8_t>::max()};
+  bool amx_tilestore = false;
+  uint64_t tile_group_id = 0;
+  uint8_t tile_subidx = 0;
+  uint8_t tile_num_children = 0;
+  bool oracle_hit_status = false;
+};
+
 // cpu
 class O3_CPU : public champsim::operable
 {
@@ -177,6 +190,9 @@ public:
     uint64_t raw_rob_full = 0;
     uint64_t raw_sq_full = 0;
     uint64_t raw_no_retire = 0;
+    // SSB (Senior Store Buffer) stats
+    uint64_t ssb_drain_total = 0;
+    uint64_t raw_ssb_full = 0;
   };
 
   stall_breakdown roi_stall_stats{};
@@ -198,9 +214,14 @@ public:
 
   std::vector<std::optional<LSQ_ENTRY>> LQ;
   std::deque<LSQ_ENTRY> SQ;
+  std::deque<SSB_ENTRY> SSB;
+  std::size_t SSB_SIZE = 64;  // Senior Store Buffer (retired stores draining to L1D)
+  champsim::bandwidth::maximum_type SSB_WIDTH{champsim::bandwidth::maximum_type{2}};
 
   // Constants
-  const std::size_t IFETCH_BUFFER_SIZE, DISPATCH_BUFFER_SIZE, DECODE_BUFFER_SIZE, REGISTER_FILE_SIZE, ROB_SIZE, SQ_SIZE, DIB_HIT_BUFFER_SIZE;
+  const std::size_t IFETCH_BUFFER_SIZE, DISPATCH_BUFFER_SIZE, DECODE_BUFFER_SIZE, REGISTER_FILE_SIZE, ROB_SIZE;
+  std::size_t SQ_SIZE;  // non-const for runtime override with --sq-size-override
+  const std::size_t DIB_HIT_BUFFER_SIZE;
   champsim::bandwidth::maximum_type FETCH_WIDTH, DECODE_WIDTH, DISPATCH_WIDTH, SCHEDULER_SIZE, EXEC_WIDTH, DIB_INORDER_WIDTH;
   champsim::bandwidth::maximum_type LQ_WIDTH, SQ_WIDTH;
   champsim::bandwidth::maximum_type RETIRE_WIDTH;
@@ -337,6 +358,11 @@ public:
   void do_finish_store(const LSQ_ENTRY& sq_entry);
   bool do_complete_store(const LSQ_ENTRY& sq_entry);
   bool execute_load(const LSQ_ENTRY& lq_entry);
+
+  // Senior Store Buffer (SSB)
+  void move_sq_to_ssb();
+  long drain_ssb();
+  bool do_complete_store_from_ssb(const SSB_ENTRY& ssb_entry);
 
   [[nodiscard]] auto roi_instr() const { return roi_stats.instrs(); }
   [[nodiscard]] auto roi_cycle() const { return roi_stats.cycles(); }

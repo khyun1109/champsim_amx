@@ -127,7 +127,12 @@ bool g_enable_tile_lq_coalesce = false;
 bool g_skip_sw_prefetch = false;  // When false, SW prefetches enter LQ like scalar loads (matches real HW)
 bool g_per_child_lfb = false;   // When true, each tile child consumes its own MSHR/LFB entry (realistic HW pressure)
 bool g_tile_lru_insert = false; // When true, tile data is inserted at LRU position in L1D (anti-pollution)
-bool g_warm_scalar_llc = false; // When true, non-tile LLC misses are forced to hit (simulates warm scalar cache from prior GEMM iterations)
+bool g_warm_scalar_llc = true;      // Non-tile LLC misses forced to hit (warm scalar cache from prior GEMM iterations)
+bool g_enable_ssb = true;           // Senior Store Buffer enabled: retired stores move to SSB, freeing SQ entries
+bool g_enable_mesh_latency = true;  // LLC access latency varies by core-to-slice mesh distance
+int  g_mesh_cols = 9;               // Mesh grid columns (EMR XCC: ~9x4 per tile, dual-tile)
+int  g_mesh_hop_cycles = 1;         // Cycles per mesh hop (~1-1.5 cy/hop on Intel mesh)
+int  g_mesh_num_slices = 66;        // Total LLC slices (EMR XCC: ~66 physical die nodes)
 
 #else
 
@@ -149,6 +154,11 @@ extern bool g_skip_sw_prefetch;
 extern bool g_per_child_lfb;
 extern bool g_tile_lru_insert;
 extern bool g_warm_scalar_llc;
+extern bool g_enable_ssb;
+extern bool g_enable_mesh_latency;
+extern int  g_mesh_cols;
+extern int  g_mesh_hop_cycles;
+extern int  g_mesh_num_slices;
 extern std::recursive_mutex g_tile_mtx;
 
 #endif  // AMX_TILE_IMPL
